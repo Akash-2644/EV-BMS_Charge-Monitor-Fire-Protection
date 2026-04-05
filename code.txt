@@ -1,0 +1,115 @@
+/*
+  EV BMS System (1-Second Boot Screen + Fire Protection)
+  - Start: Shows "EV BMS Monitor" for 1 sec
+  - Loop: Shows Voltage, Current, Temperature
+  - Fault: Trips on V, I, T, or Gas (Smoke)
+*/
+
+#include <LiquidCrystal.h>
+
+// LCD Pins: RS, E, D4, D5, D6, D7
+LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+
+// --- Pin Definitions ---
+const int voltagePin = A0;      // Potentiometer 1 (Voltage)
+const int tempPin    = A1;      // TMP36 (Temperature)
+const int currentPin = A2;      // Potentiometer 2 (Current)
+const int gasPin     = A3;      // MQ Gas Sensor
+const int transistorPin = 8;    // NPN Transistor Base (Load Switch)
+const int greenLed   = 9;       // Safe LED
+const int redLed     = 10;      // Fault LED
+const int buzzer     = 13;      // Alarm
+
+// --- Safety Thresholds ---
+const float MAX_VOLTAGE = 4.2;
+const float MIN_VOLTAGE = 3.0;
+const float MAX_TEMP    = 40.0;
+const float MAX_CURRENT = 20.0;
+const int   MAX_GAS     = 1309;  // Gas/Smoke threshold (Adjustable based on TinkerCAD simulation)
+
+void setup() {
+  // 1. Configure Output & Input Pins
+  pinMode(transistorPin, OUTPUT);
+  pinMode(greenLed, OUTPUT);
+  pinMode(redLed, OUTPUT);
+  pinMode(buzzer, OUTPUT);
+  pinMode(gasPin, INPUT);
+
+  // 2. Initialize LCD
+  lcd.begin(16, 2);
+
+  // --- BOOT SCREEN ---
+  lcd.setCursor(1, 0);         
+  lcd.print("EV BMS MONITOR"); 
+  
+  delay(1000);                 
+  lcd.clear();                 
+}
+
+void loop() {
+  // --- 1. READ SENSORS ---
+  
+  // A. Read Voltage (0V to 5V)
+  int voltRaw = analogRead(voltagePin);
+  float voltage = voltRaw * (5.0 / 1023.0); 
+
+  // B. Read Temperature (TMP36)
+  int tempRaw = analogRead(tempPin);
+  float tempVolts = tempRaw * (5000.0 / 1024.0);
+  float temperatureC = (tempVolts - 500) / 10.0;
+
+  // C. Read Current (Simulated 0A to 30A)
+  int currentRaw = analogRead(currentPin);
+  float currentAmps = currentRaw * (30.0 / 1023.0);
+
+  // D. Read Gas/Smoke Sensor
+  int gasRaw = analogRead(gasPin);
+
+  // --- 2. DISPLAY DATA ---
+  // Row 0: "V:3.5v  I:12A"
+  lcd.setCursor(0, 0);
+  lcd.print("V:"); lcd.print(voltage, 1); lcd.print("V ");
+  
+  lcd.setCursor(9, 0);
+  lcd.print("I:"); lcd.print(currentAmps, 0); lcd.print("Amp ");
+
+  // Row 1: "T:25C   Sys:OK"
+  lcd.setCursor(0, 1);
+  lcd.print("T:"); lcd.print(temperatureC, 0); lcd.print("°C  ");
+
+  // --- 3. PROTECTION LOGIC ---
+  bool voltFault = (voltage > MAX_VOLTAGE || voltage < MIN_VOLTAGE);
+  bool tempFault = (temperatureC > MAX_TEMP);
+  bool currentFault = (currentAmps > MAX_CURRENT);
+  bool gasFault = (gasRaw > MAX_GAS);
+
+  // If any fault is detected, trigger the safety cutoff
+  if (voltFault || tempFault || currentFault || gasFault) {
+    // === FAULT MODE ===
+    digitalWrite(transistorPin, LOW); // Cut Power (Lamp OFF)
+    digitalWrite(greenLed, LOW);      // Green OFF
+    digitalWrite(redLed, HIGH);       // Red ON
+    digitalWrite(buzzer, HIGH);       // Alarm ON
+    
+    // Update LCD based on the type of fault
+    lcd.setCursor(9, 1);
+    if (gasFault) {
+      lcd.print("FIRE!   "); // Specific alert for gas/smoke
+    } else {
+      lcd.print("Warning "); // Standard alert for V, I, or T
+    }
+  } 
+  else {
+    // === SAFE MODE ===
+    digitalWrite(transistorPin, HIGH); // Power ON (Lamp ON)
+    digitalWrite(greenLed, HIGH);      // Green ON
+    digitalWrite(redLed, LOW);         // Red OFF
+    digitalWrite(buzzer, LOW);         // Alarm OFF
+    
+    // Show "Sys:OK" on LCD
+    lcd.setCursor(9, 1);
+    lcd.print("Sys:OK! ");
+  }
+  
+  delay(200); // Small delay to prevent screen flickering
+}
